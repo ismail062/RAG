@@ -44,6 +44,7 @@ def get_vectorstore(text_chunks, api_key):
     
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
     vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
+    vectorstore.save_local("faiss_index")
     return vectorstore
 
 def get_conversation_chain(vectorstore, api_key):
@@ -87,8 +88,8 @@ def handle_userinput(user_question):
                 st.write(message.content)
 
 def main():
-    st.set_page_config(page_title="Chat with multiple PDFs", page_icon=":books:")
-    st.header("Chat with multiple PDFs :books:")
+    st.set_page_config(page_title="Agentic Onboarding", page_icon=":busts_in_silhouette:")
+    st.header("Agentic Onboarding :busts_in_silhouette:")
 
     # Initialize session state variables
     if "conversation" not in st.session_state:

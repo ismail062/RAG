@@ -4,9 +4,10 @@ from langchain.text_splitter import CharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
+from langchain_community.chat_models import ChatOllama
+from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
-from langchain.prompts import PromptTemplate
 
 def get_pdf_text(pdf_docs):
     """
@@ -37,9 +38,10 @@ def get_text_chunks(text):
 def get_vectorstore(text_chunks, api_key):
     """
     Creates a persistent vector store using OpenAI Embeddings and FAISS.
+    Note: Always uses OpenAI Embeddings for now to maintain retrieval quality.
     """
     if not api_key:
-        st.error("Please provide an OpenAI API Key.")
+        st.error("OpenAI API Key is required for processing documents (Embeddings).")
         return None
     
     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
@@ -47,15 +49,41 @@ def get_vectorstore(text_chunks, api_key):
     vectorstore.save_local("faiss_index")
     return vectorstore
 
-def get_conversation_chain(vectorstore, api_key):
+def get_llm(provider, model_name, api_key=None, base_url=None):
     """
-    Creates a conversational retrieval chain using the vector store and ChatOpenAI.
+    Factory function to get the appropriate LLM based on provider.
     """
-    if not api_key:
-        return None
-        
-    llm = ChatOpenAI(temperature=0, model_name='gpt-3.5-turbo', openai_api_key=api_key)
-    
+    if provider == "OpenAI":
+        return ChatOpenAI(
+            temperature=0, 
+            model_name=model_name, 
+            openai_api_key=api_key
+        )
+    elif provider == "Grok (xAI)":
+        return ChatOpenAI(
+            temperature=0, 
+            model_name=model_name, 
+            openai_api_key=api_key,
+            base_url="https://api.x.ai/v1"
+        )
+    elif provider == "Ollama":
+        return ChatOllama(
+            model=model_name,
+            base_url=base_url if base_url else "http://host.docker.internal:11434"
+        )
+    elif provider == "Groq":
+        return ChatGroq(
+            temperature=0,
+            model_name=model_name,
+            groq_api_key=api_key
+        )
+    else:
+        raise ValueError(f"Unsupported provider: {provider}")
+
+def get_conversation_chain(vectorstore, llm):
+    """
+    Creates a conversational retrieval chain using the vector store and the chosen LLM.
+    """
     memory = ConversationBufferMemory(
         memory_key='chat_history',
         return_messages=True
@@ -105,15 +133,48 @@ def main():
     # Sidebar Configuration
     with st.sidebar:
         st.subheader("Configuration")
-        api_key = st.text_input("OpenAI API Key", type="password")
         
-        st.subheader("Your documents")
+        # LLM Selection
+        llm_provider = st.selectbox(
+            "Select LLM Provider",
+            ("OpenAI", "Grok (xAI)", "Groq", "Ollama")
+        )
+        
+        llm_api_key = None
+        ollama_base_url = None
+        model_name = "gpt-3.5-turbo" # default
+
+        if llm_provider == "OpenAI":
+            llm_api_key = st.text_input("OpenAI API Key", type="password")
+            model_name = st.text_input("Model Name", value="gpt-3.5-turbo")
+        elif llm_provider == "Grok (xAI)":
+            llm_api_key = st.text_input("xAI API Key", type="password")
+            model_name = st.text_input("Model Name", value="grok-beta")
+        elif llm_provider == "Groq":
+            llm_api_key = st.text_input("Groq API Key", type="password")
+            model_name = st.text_input("Model Name", value="llama-3.3-70b-versatile")
+        elif llm_provider == "Ollama":
+            ollama_base_url = st.text_input("Ollama Base URL", value="http://host.docker.internal:11434")
+            model_name = st.text_input("Model Name", value="llama3")
+            st.info("Ensure Ollama is running (`ollama serve`). Users inside Docker need `host.docker.internal`.")
+
+        st.divider()
+        
+        # Document Processing (Always requires OpenAI Key for Embeddings currently)
+        st.subheader("Document Processing")
+        st.caption("Requires OpenAI API Key for Embeddings")
+        embedding_api_key = st.text_input("OpenAI API Key (for Embeddings)", type="password", key="embedding_key")
+        
+        # Pre-fill embedding key if OpenAI LLM is selected
+        if llm_provider == "OpenAI" and llm_api_key:
+            embedding_api_key = llm_api_key
+
         pdf_docs = st.file_uploader(
-            "Upload your PDFs here and click on 'Process'", accept_multiple_files=True)
+            "Upload PDFs and click 'Process'", accept_multiple_files=True)
         
         if st.button("Process"):
-            if not api_key:
-                st.error("Please enter your OpenAI API Key first.")
+            if not embedding_api_key:
+                st.error("Please enter an OpenAI API Key for embeddings.")
             elif not pdf_docs:
                 st.error("Please upload at least one PDF file.")
             else:
@@ -125,12 +186,26 @@ def main():
                     text_chunks = get_text_chunks(raw_text)
                     
                     # 3. Create vector store
-                    vectorstore = get_vectorstore(text_chunks, api_key)
+                    vectorstore = get_vectorstore(text_chunks, embedding_api_key)
                     
                     if vectorstore:
-                        # 4. Create conversation chain
-                        st.session_state.conversation = get_conversation_chain(vectorstore, api_key)
-                        st.success("Processing Done!")
+                        # 4. Create conversation chain (Initially with selected LLM)
+                        try:
+                            llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
+                            st.session_state.conversation = get_conversation_chain(vectorstore, llm)
+                            st.success("Processing Done!")
+                        except Exception as e:
+                            st.error(f"Error initializing LLM: {e}")
+        
+        # Allow updating LLM without re-processing docs if vector store exists
+        if st.session_state.conversation is not None and st.button("Update LLM Settings"):
+             # We need to retrieve the vectorstore. For now, we reuse the one in the chain or reload (complex).
+             # Simpler: Just warn user to re-process if they want to switch mid-stream, 
+             # OR effectively we can't easily swap the LLM in the EXISTING chain without rebuilding it.
+             # But we can rebuild it if we stored the vectorstore in session_state? 
+             # LangChain objects often aren't pickleable for session_state.
+             # We check if we can rebuild the chain.
+             st.warning("To switch LLMs, please re-process the documents for now.")
 
 if __name__ == '__main__':
     main()

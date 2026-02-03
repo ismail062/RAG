@@ -80,22 +80,19 @@ def get_llm(provider, model_name, api_key=None, base_url=None):
     else:
         raise ValueError(f"Unsupported provider: {provider}")
 
-def get_conversation_chain(vectorstore, llm, memory=None):
+def get_conversation_chain(vectorstore, llm):
     """
     Creates a conversational retrieval chain using the vector store and the chosen LLM.
     """
-    if memory is None:
-        memory = ConversationBufferMemory(
-            memory_key='chat_history',
-            return_messages=True,
-            output_key='answer' 
-        )
+    memory = ConversationBufferMemory(
+        memory_key='chat_history',
+        return_messages=True
+    )
     
     conversation_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=vectorstore.as_retriever(),
-        memory=memory,
-        return_source_documents=True # Helpful for debugging, though we don't display it yet
+        memory=memory
     )
     return conversation_chain
 
@@ -107,7 +104,6 @@ def handle_userinput(user_question):
         st.warning("Please process documents first!")
         return
 
-    # RetrievalAugmentedGeneration returns a dictionary with 'answer' and 'chat_history' (and 'source_documents')
     response = st.session_state.conversation({'question': user_question})
     st.session_state.chat_history = response['chat_history']
 
@@ -173,9 +169,6 @@ def main():
         if llm_provider == "OpenAI" and llm_api_key:
             embedding_api_key = llm_api_key
 
-        
-        # --- Logic for Processing vs Updating ---
-        # 1. Processing New Documents
         pdf_docs = st.file_uploader(
             "Upload PDFs and click 'Process'", accept_multiple_files=True)
         
@@ -196,36 +189,23 @@ def main():
                     vectorstore = get_vectorstore(text_chunks, embedding_api_key)
                     
                     if vectorstore:
-                        # 4. Create conversation chain (Resetting memory)
+                        # 4. Create conversation chain (Initially with selected LLM)
                         try:
                             llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
                             st.session_state.conversation = get_conversation_chain(vectorstore, llm)
                             st.success("Processing Done!")
                         except Exception as e:
                             st.error(f"Error initializing LLM: {e}")
+        
+        # Allow updating LLM without re-processing docs if vector store exists
+        if st.session_state.conversation is not None and st.button("Update LLM Settings"):
+             # We need to retrieve the vectorstore. For now, we reuse the one in the chain or reload (complex).
+             # Simpler: Just warn user to re-process if they want to switch mid-stream, 
+             # OR effectively we can't easily swap the LLM in the EXISTING chain without rebuilding it.
+             # But we can rebuild it if we stored the vectorstore in session_state? 
+             # LangChain objects often aren't pickleable for session_state.
+             # We check if we can rebuild the chain.
+             st.warning("To switch LLMs, please re-process the documents for now.")
 
-        # 2. Updating LLM (Preserving Memory)
-        if st.session_state.conversation is not None:
-             st.divider()
-             if st.button("Update LLM (Preserve Chat)"):
-                 with st.spinner("Updating LLM..."):
-                    try:
-                        # Re-load vector store from local index to be safe (or use existing retreiver if accessible)
-                        # Ideal: use existing retriever. But we don't have easy access to the vectorstore object itself 
-                        # from the chain in a clean way unless we iterate components.
-                        # Easier: Re-load from disk since we saved it.
-                        embeddings = OpenAIEmbeddings(openai_api_key=embedding_api_key)
-                        vectorstore = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
-                        
-                        # Create new LLM
-                        new_llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
-                        
-                        # Get OLD memory
-                        old_memory = st.session_state.conversation.memory
-                        
-                        # Create NEW chain with OLD memory
-                        st.session_state.conversation = get_conversation_chain(vectorstore, new_llm, memory=old_memory)
-                        st.success(f"LLM updated to {model_name}! Chat history preserved.")
-                    
-                    except Exception as e:
-                         st.error(f"Error updating LLM: {e}. (Ensure Embedding Key is still set)")
+if __name__ == '__main__':
+    main()

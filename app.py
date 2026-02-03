@@ -196,17 +196,29 @@ def main():
             /* Chat Input Styling */
             /* Remove purple background from chat input container if present */
             [data-testid="stBottom"] {
-                background-color: transparent !important;
+                background-color: white !important;
+            }
+            [data-testid="stBottom"] > div {
+                background-color: white !important;
             }
             
-            /* Input box styling */
-            [data-testid="stChatInput"] .stTextInput div[data-baseweb="input"] {
-                background-color: white !important;
-                border-color: #e0e0e0 !important;
-                color: #333333 !important; /* Text color */
+            /* Input box styling - Specific Request */
+            [data-testid="stChatInput"] {
+                background-color: transparent !important;
             }
-            [data-testid="stChatInput"] .stTextInput input {
+            [data-testid="stChatInput"] div[data-baseweb="input"] {
+                background-color: white !important;
+                border: 2px solid #7d3cff !important; /* Keep purple border */
+                border-radius: 20px !important;
+            }
+            [data-testid="stChatInput"] textarea {
+                background-color: white !important;
                 color: #333333 !important;
+                caret-color: #333333 !important;
+            }
+            /* Make key focus white and remove any other backgrounds */
+            [data-testid="stChatInput"] div[data-baseweb="base-input"] {
+                background-color: white !important;
             }
 
             /* Send Button Styling */
@@ -222,6 +234,11 @@ def main():
              /* If specific send icon SVG needs coloring */
             [data-testid="stChatInput"] button svg {
                 fill: #71dc99 !important;
+            }
+
+            /* Password Visibility Toggle (Eye Icon) */
+            [data-testid="stSidebar"] [data-testid="stTextInput"] button {
+                color: #71dc99 !important;
             }
         </style>
     """, unsafe_allow_html=True)

@@ -119,6 +119,113 @@ def main():
     st.set_page_config(page_title="Agentic Onboarding", page_icon=":busts_in_silhouette:")
     st.header("Agentic Onboarding :busts_in_silhouette:")
 
+    # Custom CSS for sidebar styling and visibility
+    st.markdown("""
+        <style>
+            /* Sidebar Background & Text */
+            [data-testid="stSidebar"] {
+                color: white !important;
+                background-color: #7d3cff; /* Ensure fallback/reinforcement */
+            }
+            /* Sidebar Typography */
+            [data-testid="stSidebar"] .stMarkdown, 
+            [data-testid="stSidebar"] label, 
+            [data-testid="stSidebar"] h1, 
+            [data-testid="stSidebar"] h2, 
+            [data-testid="stSidebar"] h3,
+            [data-testid="stSidebar"] .stCaption {
+                color: white !important;
+            }
+            
+            /* Input Fields (Text Input, Select Box) - Fix White on White */
+            [data-testid="stSidebar"] input {
+                color: #333333 !important;
+            }
+            [data-testid="stSidebar"] [data-baseweb="select"] span {
+                color: #333333 !important;
+            }
+            [data-testid="stSidebar"] div[data-baseweb="select"] > div {
+                background-color: white !important;
+                color: #333333 !important;
+            }
+             /* Config for Dropdown options */
+             ul[data-testid="stSelectboxVirtualDropdown"] li {
+                 color: #333333 !important;
+             }
+
+            /* Buttons (Green Theme) */
+            .stButton > button {
+                background-color: #71dc99 !important;
+                color: #004d26 !important; /* Darker green text for contrast */
+                border: none;
+                border-radius: 8px;
+                font-weight: bold;
+                transition: all 0.3s ease;
+            }
+            .stButton > button:hover {
+                background-color: #5ec785 !important;
+                color: white !important;
+                box-shadow: 0 4px 6px rgba(0,0,0,0.2);
+                transform: translateY(-2px);
+            }
+
+            /* File Uploader Button */
+            [data-testid="stFileUploader"] button {
+                background-color: #71dc99 !important;
+                color: #004d26 !important;
+                border: none;
+                border-radius: 8px;
+            }
+            [data-testid="stFileUploader"] button:hover {
+                background-color: #5ec785 !important;
+                color: white !important;
+            }
+            
+            /* Modernize Sidebar Inputs */
+            [data-testid="stSidebar"] .stTextInput > div > div {
+                background-color: white !important;
+                border-radius: 8px;
+                border: none;
+            }
+            [data-testid="stSidebar"] .stSelectbox > div > div {
+                background-color: white !important;
+                border-radius: 8px;
+                border: none;
+            }
+            
+            /* Chat Input Styling */
+            /* Remove purple background from chat input container if present */
+            [data-testid="stBottom"] {
+                background-color: transparent !important;
+            }
+            
+            /* Input box styling */
+            [data-testid="stChatInput"] .stTextInput div[data-baseweb="input"] {
+                background-color: white !important;
+                border-color: #e0e0e0 !important;
+                color: #333333 !important; /* Text color */
+            }
+            [data-testid="stChatInput"] .stTextInput input {
+                color: #333333 !important;
+            }
+
+            /* Send Button Styling */
+            [data-testid="stChatInput"] button[kind="primary"] {
+                background-color: transparent !important; /* Usually transparent in chat input */
+                color: #71dc99 !important; /* Green Icon */
+                border: none;
+            }
+            [data-testid="stChatInput"] button[kind="primary"]:hover {
+                color: #218838 !important; /* Darker green on hover */
+                background-color: transparent !important;
+            }
+             /* If specific send icon SVG needs coloring */
+            [data-testid="stChatInput"] button svg {
+                fill: #71dc99 !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
     # Initialize session state variables
     if "conversation" not in st.session_state:
         st.session_state.conversation = None

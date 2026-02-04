@@ -86,13 +86,16 @@ def get_conversation_chain(vectorstore, llm):
     """
     memory = ConversationBufferMemory(
         memory_key='chat_history',
-        return_messages=True
+        return_messages=True,
+        input_key='question',
+        output_key='answer'
     )
     
     conversation_chain = ConversationalRetrievalChain.from_llm(
         llm=llm,
         retriever=vectorstore.as_retriever(),
-        memory=memory
+        memory=memory,
+        return_source_documents=True # Optional: useful for debugging
     )
     return conversation_chain
 
@@ -306,20 +309,29 @@ def main():
                     # 1. Get PDF text
                     raw_text = get_pdf_text(pdf_docs)
                     
-                    # 2. Get the text chunks
-                    text_chunks = get_text_chunks(raw_text)
-                    
-                    # 3. Create vector store
-                    vectorstore = get_vectorstore(text_chunks, embedding_api_key)
-                    
-                    if vectorstore:
-                        # 4. Create conversation chain (Initially with selected LLM)
-                        try:
-                            llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
-                            st.session_state.conversation = get_conversation_chain(vectorstore, llm)
-                            st.success("Processing Done!")
-                        except Exception as e:
-                            st.error(f"Error initializing LLM: {e}")
+                    if not raw_text.strip():
+                        st.error("Could not extract text from the PDF(s). They might be empty or scanned images without OCR.")
+                    else:
+                        # 2. Get the text chunks
+                        text_chunks = get_text_chunks(raw_text)
+                        
+                        if not text_chunks:
+                             st.error("No text chunks created. The document might be too short.")
+                        else:
+                            # 3. Create vector store
+                            try:
+                                vectorstore = get_vectorstore(text_chunks, embedding_api_key)
+                                
+                                if vectorstore:
+                                    # 4. Create conversation chain (Initially with selected LLM)
+                                    try:
+                                        llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
+                                        st.session_state.conversation = get_conversation_chain(vectorstore, llm)
+                                        st.success("Processing Done!")
+                                    except Exception as e:
+                                        st.error(f"Error initializing LLM: {e}")
+                            except Exception as e:
+                                st.error(f"Error creating vector store: {e}")
         
         # Allow updating LLM without re-processing docs if vector store exists
         if st.session_state.conversation is not None and st.button("Update LLM Settings"):

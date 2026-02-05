@@ -8,3 +8,6 @@ faiss-cpu
 pypdf
 tiktoken
 cryptography
+plotly
+wordcloud
+matplotlib

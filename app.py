@@ -8,17 +8,23 @@ from langchain_community.chat_models import ChatOllama
 from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
+import plotly.express as px
+from wordcloud import WordCloud
+import matplotlib.pyplot as plt
+import numpy as np
 
 def get_pdf_text(pdf_docs):
     """
-    Extracts text from a list of PDF documents.
+    Extracts text from a list of PDF documents and returns text + page count.
     """
     text = ""
+    total_pages = 0
     for pdf in pdf_docs:
         pdf_reader = PdfReader(pdf)
+        total_pages += len(pdf_reader.pages)
         for page in pdf_reader.pages:
             text += page.extract_text()
-    return text
+    return text, total_pages
 
 def get_text_chunks(text):
     """
@@ -307,7 +313,7 @@ def main():
             else:
                 with st.spinner("Processing..."):
                     # 1. Get PDF text
-                    raw_text = get_pdf_text(pdf_docs)
+                    raw_text, total_pages = get_pdf_text(pdf_docs)
                     
                     if not raw_text.strip():
                         st.error("Could not extract text from the PDF(s). They might be empty or scanned images without OCR.")
@@ -328,10 +334,52 @@ def main():
                                         llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
                                         st.session_state.conversation = get_conversation_chain(vectorstore, llm)
                                         st.success("Processing Done!")
+                                        
+                                        # Save stats to session state for persistence
+                                        st.session_state.processing_stats = {
+                                            "doc_count": len(pdf_docs),
+                                            "total_pages": total_pages,
+                                            "chunk_count": len(text_chunks),
+                                            "avg_chunk_size": len(raw_text)//len(text_chunks),
+                                            "raw_text": raw_text,
+                                            "chunk_lengths": [len(chunk) for chunk in text_chunks]
+                                        }
+
                                     except Exception as e:
                                         st.error(f"Error initializing LLM: {e}")
                             except Exception as e:
                                 st.error(f"Error creating vector store: {e}")
+                                
+    # Display Infographic if stats exist
+    if "processing_stats" in st.session_state and st.session_state.processing_stats:
+        stats = st.session_state.processing_stats
+        
+        # --- INFOGRAPHIC VISUALIZATION ---
+        with st.expander("Document Infographic", expanded=False):
+            # Metrics
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Documents", stats["doc_count"])
+            col2.metric("Total Pages", stats["total_pages"])
+            col3.metric("Text Chunks", stats["chunk_count"])
+            col4.metric("Avg Chunk Size", f"{stats['avg_chunk_size']} chars")
+            
+            # Word Cloud
+            st.write("#### Word Cloud")
+            try:
+                # Use cached raw text
+                wordcloud = WordCloud(width=800, height=400, background_color='white').generate(stats["raw_text"])
+                fig, ax = plt.subplots(figsize=(10, 5))
+                ax.imshow(wordcloud, interpolation='bilinear')
+                ax.axis("off")
+                st.pyplot(fig)
+            except Exception as wc_error:
+                st.warning(f"Could not generate word cloud: {wc_error}")
+
+            # Chunk Distribution
+            st.write("#### Chunk Size Distribution")
+            fig_hist = px.histogram(x=stats["chunk_lengths"], nbins=20, labels={'x': 'Chunk Size (chars)', 'y': 'Count'}, title="Chunk Length Distribution")
+            fig_hist.update_layout(showlegend=False)
+            st.plotly_chart(fig_hist)
         
         # Allow updating LLM without re-processing docs if vector store exists
         if st.session_state.conversation is not None and st.button("Update LLM Settings"):

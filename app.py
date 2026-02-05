@@ -8,10 +8,39 @@ from langchain_community.chat_models import ChatOllama
 from langchain_groq import ChatGroq
 from langchain.memory import ConversationBufferMemory
 from langchain.chains import ConversationalRetrievalChain
+from langchain.chains.summarize import load_summarize_chain
+from langchain.docstore.document import Document
 import plotly.express as px
 from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import numpy as np
+
+def get_summary(llm, text_chunks):
+    """
+    Generates a summary of the document using the LLM.
+    Uses 'map_reduce' strategy on a subset of chunks to ensure speed and coverage.
+    """
+    # Create Document objects
+    docs = [Document(page_content=t) for t in text_chunks]
+    
+    # Optimization: If too many chunks, select representative ones (First 2, Middle, Last 2)
+    if len(docs) > 5:
+        indices = [0, 1, len(docs)//2, -2, -1]
+        # Remove duplicates and sort
+        indices = sorted(list(set(indices)))
+        # Ensure indices are valid
+        selected_docs = [docs[i] for i in indices if 0 <= i < len(docs)]
+    else:
+        selected_docs = docs
+
+    # Use map_reduce or stuff based on token context. 
+    # For safety and general use, map_reduce is robust but can be slow.
+    # We'll use 'stuff' if total usage is likely low, but let's stick to map_reduce for safety with 'selected_docs'.
+    # Actually, for selected_docs (5 chunks * 1000 chars = 5000 chars), 'stuff' is perfectly fine and faster!
+    
+    chain = load_summarize_chain(llm, chain_type="stuff")
+    summary = chain.run(selected_docs)
+    return summary
 
 def get_pdf_text(pdf_docs):
     """
@@ -333,6 +362,14 @@ def main():
                                     try:
                                         llm = get_llm(llm_provider, model_name, llm_api_key, ollama_base_url)
                                         st.session_state.conversation = get_conversation_chain(vectorstore, llm)
+                                        
+                                        # 5. Generate Summary
+                                        summary = "Could not generate summary."
+                                        try:
+                                            summary = get_summary(llm, text_chunks)
+                                        except Exception as es:
+                                            summary = f"Summary generation failed: {es}"
+                                            
                                         st.success("Processing Done!")
                                         
                                         # Save stats to session state for persistence
@@ -342,7 +379,8 @@ def main():
                                             "chunk_count": len(text_chunks),
                                             "avg_chunk_size": len(raw_text)//len(text_chunks),
                                             "raw_text": raw_text,
-                                            "chunk_lengths": [len(chunk) for chunk in text_chunks]
+                                            "chunk_lengths": [len(chunk) for chunk in text_chunks],
+                                            "summary": summary
                                         }
 
                                     except Exception as e:
@@ -362,6 +400,11 @@ def main():
             col2.metric("Total Pages", stats["total_pages"])
             col3.metric("Text Chunks", stats["chunk_count"])
             col4.metric("Avg Chunk Size", f"{stats['avg_chunk_size']} chars")
+            
+            # Summary Section
+            st.divider()
+            st.write("#### 📝 Document Summary")
+            st.info(stats.get("summary", "No summary available."))
             
             # Word Cloud
             st.write("#### Word Cloud")

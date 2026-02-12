@@ -183,7 +183,7 @@ def handle_userinput(user_question):
                     if sources:
                         with st.expander("📚 Source Documents"):
                             for idx, doc in enumerate(sources):
-                                st.markdown(f"**Source {idx + 1}** (Page {doc.metadata.get('page', 'N/A') + 1})")
+                                st.markdown(f"**{doc.metadata.get('source', 'Unknown')}** (Page {doc.metadata.get('page', 'N/A') + 1})")
                                 st.caption(doc.page_content[:300] + "...") # Preview first 300 chars
                                 st.divider()
 

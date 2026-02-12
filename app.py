@@ -383,7 +383,6 @@ def main():
                 st.error("Please upload at least one PDF file.")
             else:
                 with st.spinner("Processing..."):
-                with st.spinner("Processing..."):
                     # 1. Get processed documents provided with metadata
                     raw_text, documents, total_pages = get_pdf_text_and_docs(pdf_docs)
                     

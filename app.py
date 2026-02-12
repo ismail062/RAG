@@ -15,13 +15,73 @@ from wordcloud import WordCloud
 import matplotlib.pyplot as plt
 import numpy as np
 
-def get_summary(llm, text_chunks):
+
+
+def get_pdf_text_and_docs(pdf_docs):
+    """
+    Extracts text and creates Document objects from PDF documents.
+    Returns:
+    - full_text: Concatenated text (for wordcloud/stats)
+    - documents: List of Document objects with metadata (source, page)
+    - total_pages: Total page count
+    """
+    full_text = ""
+    documents = []
+    total_pages = 0
+    
+    for pdf in pdf_docs:
+        pdf_reader = PdfReader(pdf)
+        num_pages = len(pdf_reader.pages)
+        total_pages += num_pages
+        
+        for i, page in enumerate(pdf_reader.pages):
+            text = page.extract_text()
+            if text:
+                full_text += text
+                # Create a Document object for each page with metadata
+                documents.append(Document(
+                    page_content=text,
+                    metadata={"source": pdf.name, "page": i}
+                ))
+    return full_text, documents, total_pages
+
+def get_text_chunks(documents):
+    """
+    Splits the documents into chunks.
+    Chunk size: 1000 characters
+    Overlap: 200 characters
+    """
+    text_splitter = CharacterTextSplitter(
+        separator="\n",
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )
+    # Using split_documents preserves metadata (source, page)
+    chunks = text_splitter.split_documents(documents)
+    return chunks
+
+def get_vectorstore(text_chunks, api_key):
+    """
+    Creates a persistent vector store using OpenAI Embeddings and FAISS.
+    Note: Always uses OpenAI Embeddings for now to maintain retrieval quality.
+    """
+    if not api_key:
+        st.error("OpenAI API Key is required for processing documents (Embeddings).")
+        return None
+    
+    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
+    # Using from_documents because chunks are now Document objects
+    vectorstore = FAISS.from_documents(documents=text_chunks, embedding=embeddings)
+    vectorstore.save_local("faiss_index")
+    return vectorstore
+
+def get_summary(llm, docs):
     """
     Generates a summary of the document using the LLM.
     Uses 'map_reduce' strategy on a subset of chunks to ensure speed and coverage.
     """
-    # Create Document objects
-    docs = [Document(page_content=t) for t in text_chunks]
+    # docs are already Document objects
     
     # Optimization: If too many chunks, select representative ones (First 2, Middle, Last 2)
     if len(docs) > 5:
@@ -41,48 +101,6 @@ def get_summary(llm, text_chunks):
     chain = load_summarize_chain(llm, chain_type="stuff")
     summary = chain.run(selected_docs)
     return summary
-
-def get_pdf_text(pdf_docs):
-    """
-    Extracts text from a list of PDF documents and returns text + page count.
-    """
-    text = ""
-    total_pages = 0
-    for pdf in pdf_docs:
-        pdf_reader = PdfReader(pdf)
-        total_pages += len(pdf_reader.pages)
-        for page in pdf_reader.pages:
-            text += page.extract_text()
-    return text, total_pages
-
-def get_text_chunks(text):
-    """
-    Splits the raw text into chunks.
-    Chunk size: 1000 characters
-    Overlap: 200 characters
-    """
-    text_splitter = CharacterTextSplitter(
-        separator="\n",
-        chunk_size=1000,
-        chunk_overlap=200,
-        length_function=len
-    )
-    chunks = text_splitter.split_text(text)
-    return chunks
-
-def get_vectorstore(text_chunks, api_key):
-    """
-    Creates a persistent vector store using OpenAI Embeddings and FAISS.
-    Note: Always uses OpenAI Embeddings for now to maintain retrieval quality.
-    """
-    if not api_key:
-        st.error("OpenAI API Key is required for processing documents (Embeddings).")
-        return None
-    
-    embeddings = OpenAIEmbeddings(openai_api_key=api_key)
-    vectorstore = FAISS.from_texts(texts=text_chunks, embedding=embeddings)
-    vectorstore.save_local("faiss_index")
-    return vectorstore
 
 def get_llm(provider, model_name, api_key=None, base_url=None):
     """
@@ -144,6 +162,12 @@ def handle_userinput(user_question):
 
     response = st.session_state.conversation({'question': user_question})
     st.session_state.chat_history = response['chat_history']
+    
+    # Store sources
+    # User message has no sources
+    st.session_state.chat_sources.append(None)
+    # Assistant message has sources (if available)
+    st.session_state.chat_sources.append(response.get('source_documents', []))
 
     for i, message in enumerate(st.session_state.chat_history):
         if i % 2 == 0:
@@ -152,6 +176,16 @@ def handle_userinput(user_question):
         else:
             with st.chat_message("assistant"):
                 st.write(message.content)
+                
+                # Display sources if available
+                if i < len(st.session_state.chat_sources):
+                    sources = st.session_state.chat_sources[i]
+                    if sources:
+                        with st.expander("📚 Source Documents"):
+                            for idx, doc in enumerate(sources):
+                                st.markdown(f"**Source {idx + 1}** (Page {doc.metadata.get('page', 'N/A') + 1})")
+                                st.caption(doc.page_content[:300] + "...") # Preview first 300 chars
+                                st.divider()
 
 def main():
     st.set_page_config(page_title="Agentic Onboarding", page_icon=":busts_in_silhouette:")
@@ -285,7 +319,15 @@ def main():
     if "conversation" not in st.session_state:
         st.session_state.conversation = None
     if "chat_history" not in st.session_state:
-        st.session_state.chat_history = None
+        st.session_state.chat_history = []
+    if "chat_sources" not in st.session_state:
+        st.session_state.chat_sources = []
+        
+    # Sync chat_sources with chat_history if needed (e.g. after refresh)
+    if st.session_state.chat_history and len(st.session_state.chat_sources) < len(st.session_state.chat_history):
+        # Fill missing sources with None
+        diff = len(st.session_state.chat_history) - len(st.session_state.chat_sources)
+        st.session_state.chat_sources.extend([None] * diff)
 
     # Main Chat Interface
     user_question = st.chat_input("Ask a question about your documents:")
@@ -341,14 +383,15 @@ def main():
                 st.error("Please upload at least one PDF file.")
             else:
                 with st.spinner("Processing..."):
-                    # 1. Get PDF text
-                    raw_text, total_pages = get_pdf_text(pdf_docs)
+                with st.spinner("Processing..."):
+                    # 1. Get processed documents provided with metadata
+                    raw_text, documents, total_pages = get_pdf_text_and_docs(pdf_docs)
                     
                     if not raw_text.strip():
                         st.error("Could not extract text from the PDF(s). They might be empty or scanned images without OCR.")
                     else:
-                        # 2. Get the text chunks
-                        text_chunks = get_text_chunks(raw_text)
+                        # 2. Get the text chunks (preserves metadata)
+                        text_chunks = get_text_chunks(documents)
                         
                         if not text_chunks:
                              st.error("No text chunks created. The document might be too short.")
@@ -366,6 +409,7 @@ def main():
                                         # 5. Generate Summary
                                         summary = "Could not generate summary."
                                         try:
+                                            # Pass text_chunks which are now Document objects
                                             summary = get_summary(llm, text_chunks)
                                         except Exception as es:
                                             summary = f"Summary generation failed: {es}"
@@ -379,7 +423,7 @@ def main():
                                             "chunk_count": len(text_chunks),
                                             "avg_chunk_size": len(raw_text)//len(text_chunks),
                                             "raw_text": raw_text,
-                                            "chunk_lengths": [len(chunk) for chunk in text_chunks],
+                                            "chunk_lengths": [len(chunk.page_content) for chunk in text_chunks], # chunk is now Document
                                             "summary": summary
                                         }
 

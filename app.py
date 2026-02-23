@@ -163,11 +163,30 @@ def handle_userinput(user_question):
     response = st.session_state.conversation({'question': user_question})
     st.session_state.chat_history = response['chat_history']
     
+    # Extract the latest assistant answer content
+    answer_content = st.session_state.chat_history[-1].content.lower()
+    
+    # Keywords that suggest the answer is "out of context"
+    out_of_context_keywords = [
+        "i don't know", "i do not know", "not mentioned", 
+        "not in the document", "not found", "no information",
+        "i am sorry", "i'm sorry"
+    ]
+    
+    is_out_of_context = any(keyword in answer_content for keyword in out_of_context_keywords)
+    
     # Store sources
-    # User message has no sources
+    # User message (even index) has no sources
     st.session_state.chat_sources.append(None)
-    # Assistant message has sources (if available)
-    st.session_state.chat_sources.append(response.get('source_documents', []))
+    
+    # Assistant message (odd index)
+    if is_out_of_context:
+        # Don't return any citation if out of context
+        st.session_state.chat_sources.append(None)
+    else:
+        # Return maximum 2 relevant citations
+        sources = response.get('source_documents', [])[:2]
+        st.session_state.chat_sources.append(sources)
 
     for i, message in enumerate(st.session_state.chat_history):
         if i % 2 == 0:
